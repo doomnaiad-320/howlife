@@ -68,12 +68,9 @@ export async function GET(request: NextRequest) {
       }
 
       // **修正状态筛选逻辑**
-      // 将 'true'/'false' 字符串转换为布尔值
+      // 由于我们现在使用子查询获取success状态，状态筛选需要在外层进行
+      // 这里先记录状态筛选条件，稍后在查询中应用
       const successStatus = parseBoolean(statusParam);
-      if (successStatus !== null) { // 只有当 status 参数有效时才添加条件
-          whereClauses.push(`c.success = $${paramIndex++}`)
-          params.push(successStatus);
-      }
       
       const whereClause = `WHERE ${whereClauses.join(" AND ")}`;
 
@@ -82,11 +79,11 @@ export async function GET(request: NextRequest) {
       // 为了检查是否有下一页，多查询一条记录
       const queryLimit = limit + 1;
 
+      // 简化查询，先获取基础数据，然后在应用层处理成功状态
       const sql = `
         SELECT
           r.timestamp,
-          -- 使用 MAX() 聚合函数来处理潜在的重复记录
-          MAX(COALESCE(c.success, false)) as success,
+          1 as success,  -- 临时设为成功，稍后在应用层处理
           r.model,
           r.provider,
           r.process_time as processTime,
@@ -94,22 +91,57 @@ export async function GET(request: NextRequest) {
           r.prompt_tokens as promptTokens,
           r.completion_tokens as completionTokens,
           r.total_tokens as totalTokens,
-          r.text
+          r.text,
+          r.request_id
         FROM request_stats r
-        LEFT JOIN channel_stats c ON r.request_id = c.request_id
         ${whereClause}
-        GROUP BY r.request_id -- 通过唯一的请求ID进行分组，防止重复
         ORDER BY r.timestamp DESC
         LIMIT $${paramIndex++} OFFSET $${paramIndex++}
       `;
       const finalParams = [...params, queryLimit, offset];
 
-      const results: LogRow[] = await query(sql, finalParams);
+      let results: any[] = await query(sql, finalParams);
+
+      // 为每个结果查找对应的成功状态
+      const processedResults: LogRow[] = await Promise.all(
+        results.map(async (row) => {
+          try {
+            // 查找最近时间匹配的channel_stats记录
+            const channelResults = await query(
+              `SELECT success FROM channel_stats
+               WHERE model = $1 AND provider = $2 AND api_key = $3
+               AND datetime(timestamp) BETWEEN datetime($4, '-5 minutes') AND datetime($4, '+5 minutes')
+               ORDER BY ABS(julianday(timestamp) - julianday($4)) ASC
+               LIMIT 1`,
+              [row.model, row.provider, row.api_key, row.timestamp]
+            );
+
+            const success = channelResults.length > 0 ? channelResults[0].success : true;
+
+            return {
+              ...row,
+              success: Boolean(success)
+            };
+          } catch (error) {
+            // 如果查询失败，默认为成功
+            return {
+              ...row,
+              success: true
+            };
+          }
+        })
+      );
+
+      // 应用状态筛选（如果指定了状态）
+      let filteredResults = processedResults;
+      if (successStatus !== null) {
+        filteredResults = processedResults.filter(row => row.success === successStatus);
+      }
 
       // 判断是否有下一页
-      const hasNextPage = results.length > limit
+      const hasNextPage = filteredResults.length > limit
       // 如果有下一页，截取所需数量的日志
-      const logs = hasNextPage ? results.slice(0, limit) : results
+      const logs = hasNextPage ? filteredResults.slice(0, limit) : filteredResults
 
       return NextResponse.json({ logs, hasNextPage })
 

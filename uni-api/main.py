@@ -141,28 +141,76 @@ def init_preference(all_config, preference_key, default_timeout=DEFAULT_TIMEOUT)
 
 async def update_paid_api_keys_states(app, paid_key):
     """
-    更新付费API密钥的状态
+    更新付费API密钥的状态，支持token计费和次数计费
 
     参数:
     app - FastAPI应用实例
-    check_index - API密钥在配置中的索引
     paid_key - 需要更新状态的API密钥
     """
     check_index = app.state.api_list.index(paid_key)
-    credits = safe_get(app.state.config, 'api_keys', check_index, "preferences", "credits", default=-1)
-    created_at = safe_get(app.state.config, 'api_keys', check_index, "preferences", "created_at", default=datetime.now(timezone.utc) - timedelta(days=30))
+
+    # 获取API密钥配置
+    api_key_config = safe_get(app.state.config, 'api_keys', check_index, default={})
+    preferences = api_key_config.get("preferences", {})
+
+    # 获取计费模式和相关配置
+    billing_mode = preferences.get("billing_mode", "token")
+    credits = preferences.get("credits", -1)
+    count_credits = preferences.get("count_credits", -1)
+    created_at = preferences.get("created_at", datetime.now(timezone.utc) - timedelta(days=30))
+
+    # 获取价格配置
     model_price = safe_get(app.state.config, 'preferences', "model_price", default={})
+    count_billing_config = safe_get(app.state.config, 'preferences', "count_billing", default={})
+
     created_at = created_at.astimezone(timezone.utc)
-    if credits != -1:
+
+    # 检查是否需要计费
+    # - token计费模式：需要credits != -1
+    # - count计费模式：需要credits != -1（用于存储金额余额）
+    # - hybrid计费模式：需要credits != -1或count_credits != -1
+    needs_billing = (billing_mode == "token" and credits != -1) or \
+                   (billing_mode == "count" and credits != -1) or \
+                   (billing_mode == "hybrid" and (credits != -1 or count_credits != -1))
+
+    if needs_billing:
         all_tokens_info = await get_usage_data(filter_api_key=paid_key, start_dt_obj=created_at)
-        total_cost = calculate_total_cost(all_tokens_info, model_price)
+
+        # 计算费用
+        cost_result = calculate_total_cost(
+            all_tokens_info,
+            model_price,
+            billing_mode=billing_mode,
+            count_billing_config=count_billing_config
+        )
+
+        total_cost = cost_result["total_cost"] if isinstance(cost_result, dict) else cost_result
+
+        # 计算剩余额度
+        enabled = True
+        if billing_mode == "token":
+            enabled = total_cost <= credits
+        elif billing_mode == "count":
+            # 对于次数计费，检查总费用是否超过金额余额
+            enabled = total_cost <= credits
+        elif billing_mode == "hybrid":
+            # 混合计费模式的启用逻辑
+            token_enabled = credits == -1 or total_cost <= credits
+            count_enabled = count_credits == -1 or sum(info["request_count"] for info in all_tokens_info) <= count_credits
+            enabled = token_enabled and count_enabled
+
         app.state.paid_api_keys_states[paid_key] = {
+            "billing_mode": billing_mode,
             "credits": credits,
+            "count_credits": count_credits,
             "created_at": created_at,
             "all_tokens_info": all_tokens_info,
             "total_cost": total_cost,
-            "enabled": True if total_cost <= credits else False
+            "cost_details": cost_result if isinstance(cost_result, dict) else None,
+            "enabled": enabled
         }
+
+        # 对于次数计费和token计费都返回credits（金额余额）
         return credits, total_cost
 
     return credits, 0
@@ -1870,9 +1918,13 @@ class QueryDetails(BaseModel):
     end_datetime: Optional[str] = None   # e.g., "2023-10-28T12:30:45Z" or Unix timestamp
     api_key_filter: Optional[str] = None
     model_filter: Optional[str] = None
+    billing_mode: Optional[str] = None
     credits: Optional[str] = None
+    count_credits: Optional[str] = None
     total_cost: Optional[str] = None
+    total_requests: Optional[str] = None
     balance: Optional[str] = None
+    count_balance: Optional[str] = None
 
 class TokenUsageResponse(BaseModel):
     usage: List[TokenUsageEntry]
@@ -2066,8 +2118,16 @@ async def get_token_usage(
 
     if filter_api_key:
         credits, total_cost = await update_paid_api_keys_states(app, filter_api_key)
+        # 获取API密钥状态信息
+        api_key_state = app.state.paid_api_keys_states.get(filter_api_key, {})
+        billing_mode = api_key_state.get("billing_mode", "token")
+        count_credits = api_key_state.get("count_credits")
+        total_requests = sum(info["request_count"] for info in usage_data)
     else:
         credits, total_cost = None, None
+        billing_mode = None
+        count_credits = None
+        total_requests = None
 
     # Prepare response
     query_details = QueryDetails(
@@ -2075,9 +2135,13 @@ async def get_token_usage(
         end_datetime=end_datetime_detail,
         api_key_filter=api_key_filter_detail,
         model_filter=model if model else "all",
-        credits= "$" + str(credits),
-        total_cost= "$" + str(total_cost),
-        balance= "$" + str(float(credits) - float(total_cost)) if credits and total_cost else None
+        billing_mode=billing_mode,
+        credits="$" + str(credits) if credits is not None else None,
+        count_credits=str(count_credits) if count_credits is not None else None,
+        total_cost="$" + str(total_cost) if total_cost is not None else None,
+        total_requests=str(total_requests) if total_requests is not None else None,
+        balance="$" + str(float(credits) - float(total_cost)) if credits and total_cost else None,
+        count_balance=str(count_credits - total_requests) if count_credits is not None and total_requests is not None else None
     )
 
     response_data = TokenUsageResponse(
@@ -2096,10 +2160,13 @@ class TokenInfo(BaseModel):
     request_count: int
 
 class ApiKeyState(BaseModel):
+    billing_mode: str = "token"
     credits: float
+    count_credits: Optional[int] = None
     created_at: datetime
     all_tokens_info: List[Dict[str, Any]]
     total_cost: float
+    cost_details: Optional[Dict[str, Any]] = None
     enabled: bool
 
     @field_serializer('created_at')
@@ -2116,10 +2183,13 @@ async def api_keys_states(token: str = Depends(verify_admin_api_key)):
     for key, state in app.state.paid_api_keys_states.items():
         # 创建ApiKeyState对象
         states_dict[key] = ApiKeyState(
+            billing_mode=state.get("billing_mode", "token"),
             credits=state["credits"],
+            count_credits=state.get("count_credits"),
             created_at=state["created_at"],
             all_tokens_info=state["all_tokens_info"],
             total_cost=state["total_cost"],
+            cost_details=state.get("cost_details"),
             enabled=state["enabled"]
         )
 
@@ -2156,6 +2226,63 @@ async def add_credits_to_api_key(
         "message": f"Successfully added {amount} credits to API key '{paid_key}'.",
         "paid_key": paid_key,
         "new_credits": current_credits,
+        "enabled": app.state.paid_api_keys_states[paid_key]["enabled"]
+    })
+
+@app.post("/v1/add_count_credits", dependencies=[Depends(rate_limit_dependency)])
+async def add_count_credits_to_api_key(
+    request: Request,
+    paid_key: str = Query(..., description="The API key to add count credits to"),
+    amount: int = Query(..., description="The number of count credits to add. Must be positive.", gt=0),
+    token: str = Depends(verify_admin_api_key)
+):
+    """添加次数计费额度到指定API密钥"""
+    if paid_key not in app.state.paid_api_keys_states:
+        raise HTTPException(status_code=404, detail=f"API key '{paid_key}' not found in paid API keys states.")
+
+    # 更新次数额度
+    current_count_credits = app.state.paid_api_keys_states[paid_key].get("count_credits", 0)
+    new_count_credits = current_count_credits + amount
+    app.state.paid_api_keys_states[paid_key]["count_credits"] = new_count_credits
+
+    # 重新计算启用状态
+    await update_paid_api_keys_states(app, paid_key)
+
+    logger.info(f"Count credits for API key '{paid_key}' updated. Amount added: {amount}, New count credits: {new_count_credits}")
+
+    return JSONResponse(content={
+        "message": f"Successfully added {amount} count credits to API key '{paid_key}'.",
+        "paid_key": paid_key,
+        "new_count_credits": new_count_credits,
+        "enabled": app.state.paid_api_keys_states[paid_key]["enabled"]
+    })
+
+@app.post("/v1/set_billing_mode", dependencies=[Depends(rate_limit_dependency)])
+async def set_billing_mode(
+    request: Request,
+    paid_key: str = Query(..., description="The API key to set billing mode for"),
+    billing_mode: str = Query(..., description="Billing mode: 'token', 'count', or 'hybrid'"),
+    token: str = Depends(verify_admin_api_key)
+):
+    """设置API密钥的计费模式"""
+    if billing_mode not in ["token", "count", "hybrid"]:
+        raise HTTPException(status_code=400, detail="Invalid billing mode. Must be 'token', 'count', or 'hybrid'.")
+
+    if paid_key not in app.state.paid_api_keys_states:
+        raise HTTPException(status_code=404, detail=f"API key '{paid_key}' not found in paid API keys states.")
+
+    # 更新计费模式
+    app.state.paid_api_keys_states[paid_key]["billing_mode"] = billing_mode
+
+    # 重新计算状态
+    await update_paid_api_keys_states(app, paid_key)
+
+    logger.info(f"Billing mode for API key '{paid_key}' set to '{billing_mode}'")
+
+    return JSONResponse(content={
+        "message": f"Successfully set billing mode to '{billing_mode}' for API key '{paid_key}'.",
+        "paid_key": paid_key,
+        "billing_mode": billing_mode,
         "enabled": app.state.paid_api_keys_states[paid_key]["enabled"]
     })
 

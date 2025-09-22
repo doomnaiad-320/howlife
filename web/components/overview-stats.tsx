@@ -4,7 +4,7 @@
 import { useState, useEffect, useMemo } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton" // Import Skeleton
-import { Activity, Zap, MessageSquare, Clock, Timer, BarChart3 } from "lucide-react"
+import { Activity, Zap, MessageSquare, Clock, Timer, BarChart3, DollarSign, Hash } from "lucide-react"
 // Import helper functions from utils.ts
 import { formatNumber, formatNumberCompact, formatTime } from "@/lib/utils"
 
@@ -21,6 +21,14 @@ interface OverviewData {
   completionTokens: number
   avgProcessTime: number // Assuming this is in seconds
   avgFirstResponseTime: number // Assuming this is in seconds
+  // 计费相关字段
+  billingMode?: string
+  credits?: string
+  countCredits?: string
+  totalCost?: string
+  totalRequests?: string
+  balance?: string
+  countBalance?: string
 }
 
 // --- Component Definition ---
@@ -106,7 +114,7 @@ export function OverviewStats({ apiKey }: OverviewStatsProps) {
       ];
     }
 
-    return [
+    const baseStats = [
       {
         title: "总请求数",
         value: displayNumber(data?.requests),
@@ -144,6 +152,60 @@ export function OverviewStats({ apiKey }: OverviewStatsProps) {
         color: "text-indigo-600",
       },
     ]
+
+    // 添加计费相关的统计卡片
+    const billingStats = []
+    if (data?.billingMode) {
+      if (data.billingMode === "token" || data.billingMode === "hybrid") {
+        billingStats.push({
+          title: "余额",
+          value: data.credits || "$0",
+          icon: DollarSign,
+          color: "text-emerald-600",
+        })
+        billingStats.push({
+          title: "已消费",
+          value: data.totalCost || "$0",
+          icon: DollarSign,
+          color: "text-red-600",
+        })
+        if (data.balance) {
+          billingStats.push({
+            title: "剩余余额",
+            value: data.balance,
+            icon: DollarSign,
+            color: "text-blue-600",
+          })
+        }
+      }
+
+      if (data.billingMode === "count" || data.billingMode === "hybrid") {
+        // 对于次数计费，显示金额而不是次数
+        billingStats.push({
+          title: "总请求数",
+          value: data.totalRequests || "0",
+          icon: Hash,
+          color: "text-cyan-600",
+        })
+        billingStats.push({
+          title: "已消费",
+          value: data.totalCost || "$0",
+          icon: DollarSign,
+          color: "text-orange-600",
+        })
+        // 显示剩余余额（金额）
+        if (data.balance) {
+          billingStats.push({
+            title: "剩余余额",
+            value: data.balance,
+            icon: DollarSign,
+            color: "text-green-600",
+          })
+        }
+      }
+    }
+
+    return [...baseStats, ...billingStats]
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, isMobile, loading]) // Dependencies for memoization
 
@@ -151,7 +213,7 @@ export function OverviewStats({ apiKey }: OverviewStatsProps) {
   return (
     <div className="space-y-4">
       <h2 className="text-xl font-semibold tracking-tight">概览统计</h2>
-      <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4"> {/* Adjusted grid columns for responsiveness */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-4"> {/* Adjusted grid columns for responsiveness */}
         {stats.map((stat, index) => (
           <Card key={index} className="w-full overflow-hidden"> {/* Added overflow-hidden */}
             <CardContent className="p-4">

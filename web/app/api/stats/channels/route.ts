@@ -11,21 +11,34 @@ export async function GET(request: NextRequest) {
     }
 
     try {
+      // 修复：由于request_id关联问题，我们使用时间窗口和渠道匹配来关联成功/失败统计
       const results = await query(
         `
         SELECT
           r.provider,
           COUNT(*) as requests,
-          COALESCE(SUM(CASE WHEN c.success = true THEN 1 ELSE 0 END), 0) as successes,
-          COALESCE(SUM(CASE WHEN c.success = false THEN 1 ELSE 0 END), 0) as failures,
-          COALESCE(AVG(CAST(c.success AS FLOAT)), 0) as successRate,
+          COALESCE(
+            (SELECT COUNT(*) FROM channel_stats c
+             WHERE c.provider = r.provider
+             AND c.api_key = r.api_key
+             AND c.success = true
+             AND datetime(c.timestamp) BETWEEN datetime(MIN(r.timestamp), '-5 minutes') AND datetime(MAX(r.timestamp), '+5 minutes')
+            ), 0
+          ) as successes,
+          COALESCE(
+            (SELECT COUNT(*) FROM channel_stats c
+             WHERE c.provider = r.provider
+             AND c.api_key = r.api_key
+             AND c.success = false
+             AND datetime(c.timestamp) BETWEEN datetime(MIN(r.timestamp), '-5 minutes') AND datetime(MAX(r.timestamp), '+5 minutes')
+            ), 0
+          ) as failures,
           COALESCE(SUM(r.total_tokens), 0) as totalTokens,
           COALESCE(SUM(r.prompt_tokens), 0) as promptTokens,
           COALESCE(SUM(r.completion_tokens), 0) as completionTokens,
           COALESCE(AVG(r.process_time), 0) as avgProcessTime,
           COALESCE(AVG(r.first_response_time), 0) as avgFirstResponseTime
         FROM request_stats r
-        LEFT JOIN channel_stats c ON r.request_id = c.request_id
         WHERE r.api_key = $1 AND r.endpoint = 'POST /v1/chat/completions'
         GROUP BY r.provider
         ORDER BY requests DESC
@@ -33,7 +46,28 @@ export async function GET(request: NextRequest) {
         [apiKey],
       )
 
-      return NextResponse.json(results)
+      // 处理结果，计算成功率
+      const processedResults = results.map((row: any) => {
+        const successes = parseInt(row.successes)
+        const failures = parseInt(row.failures)
+        const total = successes + failures
+        const successRate = total > 0 ? successes / total : 0
+
+        return {
+          provider: row.provider,
+          requests: parseInt(row.requests),
+          successes: successes,
+          failures: failures,
+          successRate: successRate,
+          totalTokens: parseInt(row.totalTokens),
+          promptTokens: parseInt(row.promptTokens),
+          completionTokens: parseInt(row.completionTokens),
+          avgProcessTime: parseFloat(row.avgProcessTime),
+          avgFirstResponseTime: parseFloat(row.avgFirstResponseTime),
+        }
+      })
+
+      return NextResponse.json(processedResults)
     } catch (dbError) {
       throw dbError
     }

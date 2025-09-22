@@ -3,6 +3,7 @@ import httpx
 import asyncio
 import h2.exceptions
 from time import time
+from typing import Dict, List, Optional, Any
 from fastapi import HTTPException
 from collections import defaultdict
 
@@ -515,36 +516,112 @@ def get_all_models(config):
 
     return all_models
 
-def calculate_total_cost(all_tokens_info, model_price):
+def calculate_total_cost(all_tokens_info, model_price, billing_mode="token", count_billing_config=None):
     """
-    计算所有模型使用的总金额
+    计算所有模型使用的总金额，支持token计费和次数计费
 
     参数:
         all_tokens_info: 列表，包含各模型的代币使用情况
-        model_price: 字典，包含各模型的价格设置，格式为 "prompt_price,completion_price"，单位为 $/M tokens
+        model_price: 字典，包含各模型的价格设置
+        billing_mode: 计费模式，"token"（按token计费）、"count"（按次数计费）或"hybrid"（混合计费）
+        count_billing_config: 次数计费配置，包含默认价格和模型特定价格
 
     返回:
-        float: 总金额（美元）
+        dict: 包含总金额和计费详情的字典
     """
     total_cost = 0.0
+    billing_details = []
+
+    # 默认次数计费配置
+    if count_billing_config is None:
+        count_billing_config = {
+            "default_count_price": 0.001,
+            "model_count_prices": {}
+        }
 
     for token_info in all_tokens_info:
         model_name = token_info["model"]
         prompt_tokens = token_info["total_prompt_tokens"]
         completion_tokens = token_info["total_completion_tokens"]
+        request_count = token_info["request_count"]
 
-        # 获取模型价格，如果模型不存在则使用默认价格
-        price_str = next((model_price[config_model_name] for config_model_name in model_price.keys() if model_name.startswith(config_model_name)), model_price.get("default", "1,2"))
-        # print("price_str", price_str)
+        model_cost = 0.0
+        cost_type = "token"  # 默认为token计费
 
-        # 解析价格字符串
-        price_parts = price_str.split(",")
-        prompt_price = float(price_parts[0])
-        completion_price = float(price_parts[1])
+        # 获取模型价格配置
+        price_config = None
+        for config_model_name in model_price.keys():
+            if model_name.startswith(config_model_name):
+                price_config = model_price[config_model_name]
+                break
 
-        # 计算当前模型的费用 ($/M tokens 转换为 $)
-        model_cost = (prompt_tokens * prompt_price + completion_tokens * completion_price) / 1000000
+        if price_config is None:
+            price_config = model_price.get("default", "1,2")
+
+        # 根据计费模式计算费用
+        if billing_mode == "count":
+            # 纯次数计费
+            count_price = get_count_price(model_name, count_billing_config)
+            model_cost = request_count * count_price
+            cost_type = "count"
+
+        elif billing_mode == "hybrid" and isinstance(price_config, dict):
+            # 混合计费模式，优先使用次数计费
+            if "count_price" in price_config:
+                model_cost = request_count * price_config["count_price"]
+                cost_type = "count"
+            elif "token_price" in price_config:
+                # 使用token计费
+                token_price_str = price_config["token_price"]
+                model_cost = calculate_token_cost(prompt_tokens, completion_tokens, token_price_str)
+                cost_type = "token"
+            else:
+                # 回退到默认token计费
+                model_cost = calculate_token_cost(prompt_tokens, completion_tokens, str(price_config))
+                cost_type = "token"
+
+        else:
+            # 默认token计费
+            if isinstance(price_config, dict) and "token_price" in price_config:
+                token_price_str = price_config["token_price"]
+            else:
+                token_price_str = str(price_config)
+            model_cost = calculate_token_cost(prompt_tokens, completion_tokens, token_price_str)
+            cost_type = "token"
 
         total_cost += model_cost
 
-    return total_cost
+        # 记录计费详情
+        billing_details.append({
+            "model": model_name,
+            "cost": model_cost,
+            "cost_type": cost_type,
+            "request_count": request_count,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens
+        })
+
+    return {
+        "total_cost": total_cost,
+        "billing_details": billing_details,
+        "billing_mode": billing_mode
+    }
+
+def calculate_token_cost(prompt_tokens, completion_tokens, price_str):
+    """计算基于token的费用"""
+    price_parts = price_str.split(",")
+    prompt_price = float(price_parts[0])
+    completion_price = float(price_parts[1]) if len(price_parts) > 1 else prompt_price
+    return (prompt_tokens * prompt_price + completion_tokens * completion_price) / 1000000
+
+def get_count_price(model_name, count_billing_config):
+    """获取模型的次数计费价格"""
+    model_count_prices = count_billing_config.get("model_count_prices", {})
+    default_price = count_billing_config.get("default_count_price", 0.001)
+
+    # 按模型名称匹配价格
+    for price_model_name, price in model_count_prices.items():
+        if model_name.startswith(price_model_name):
+            return price
+
+    return default_price

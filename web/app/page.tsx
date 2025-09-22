@@ -7,7 +7,7 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Settings, BarChart3, FileEdit, Menu, Zap, DollarSign } from "lucide-react"
+import { Settings, BarChart3, FileEdit, Menu, Zap, DollarSign, Server } from "lucide-react"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { ApiKeyModal } from "@/components/api-key-modal"
 import { ConfigEditor } from "@/components/config-editor"
@@ -19,7 +19,7 @@ import { Separator } from "@/components/ui/separator"
 import { ChannelTester } from "@/components/channel-tester"
 
 export default function HomePage() {
-  const [currentPage, setCurrentPage] = useState<"stats" | "config" | "test" | "billing">("stats")
+  const [currentPage, setCurrentPage] = useState<"stats" | "config" | "test" | "billing" | "providers">("stats")
   const [showApiKeyModal, setShowApiKeyModal] = useState(false)
   const [apiKey, setApiKey] = useState<string>("")
   const [userRole, setUserRole] = useState<string>("")
@@ -267,6 +267,18 @@ export default function HomePage() {
                 渠道测试
               </Button>
 
+              {/* Provider Management Button (Admin Only) */}
+              {canAccessConfig && (
+                <Button
+                  variant={currentPage === "providers" ? "secondary" : "ghost"}
+                  onClick={() => setCurrentPage("providers")}
+                  size="sm"
+                >
+                  <Server className="w-4 h-4 mr-2" />
+                  Provider 管理
+                </Button>
+              )}
+
               {/* Config Editor Button (Admin Only) */}
               {canAccessConfig && (
                 <Button
@@ -341,6 +353,16 @@ export default function HomePage() {
                         </Button>
                         {canAccessConfig && (
                           <Button
+                            variant={currentPage === "providers" ? "secondary" : "ghost"}
+                            onClick={() => { setCurrentPage("providers"); setMobileMenuOpen(false); }}
+                            className="w-full justify-start"
+                          >
+                            <Server className="w-4 h-4 mr-2" />
+                            Provider 管理
+                          </Button>
+                        )}
+                        {canAccessConfig && (
+                          <Button
                             variant={currentPage === "config" ? "secondary" : "ghost"}
                             onClick={() => { setCurrentPage("config"); setMobileMenuOpen(false); }}
                             className="w-full justify-start"
@@ -387,6 +409,22 @@ export default function HomePage() {
         {/* Conditional Rendering of Pages */}
         {currentPage === "stats" && <StatsViewer apiKey={viewingKey} />}
         {currentPage === "test" && <ChannelTester apiKey={apiKey} />}
+        {currentPage === "providers" && canAccessConfig && (
+          <iframe
+            src="/providers"
+            className="w-full h-[calc(100vh-200px)] border-0 rounded-lg"
+            title="Provider 管理"
+          />
+        )}
+        {currentPage === "providers" && !canAccessConfig && (
+          <Card className="border-dashed border-yellow-500 bg-yellow-50 dark:bg-yellow-900/20">
+            <CardContent className="p-6 text-center">
+              <Server className="mx-auto h-10 w-10 text-yellow-500 mb-3"/>
+              <p className="font-medium text-yellow-700 dark:text-yellow-400">访问受限</p>
+              <p className="text-sm text-muted-foreground mt-1">您需要管理员权限才能访问 Provider 管理功能。</p>
+            </CardContent>
+          </Card>
+        )}
         {currentPage === "config" && canAccessConfig && <ConfigEditor apiKey={apiKey} />}
         {currentPage === "config" && !canAccessConfig && (
           <Card className="border-dashed border-yellow-500 bg-yellow-50 dark:bg-yellow-900/20">

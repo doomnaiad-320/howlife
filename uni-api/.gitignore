@@ -1,0 +1,24 @@
+api.json
+*.yaml
+.env
+__pycache__
+.vscode
+node_modules
+.wrangler
+.pytest_cache
+*.jpg
+*.json
+!vercel.json
+# *.png
+*.db
+.aider*
+.idea
+docker-compose-*.yml
+data/
+*.db-wal
+*.db-shm
+postgres_data/
+uniapi_db/
+alembic/
+alembic.ini
+.venv/

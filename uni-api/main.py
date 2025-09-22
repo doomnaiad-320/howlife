@@ -2136,11 +2136,11 @@ async def get_token_usage(
         api_key_filter=api_key_filter_detail,
         model_filter=model if model else "all",
         billing_mode=billing_mode,
-        credits="$" + str(credits) if credits is not None else None,
+        credits="$" + f"{credits:.2f}" if credits is not None else None,
         count_credits=str(count_credits) if count_credits is not None else None,
-        total_cost="$" + str(total_cost) if total_cost is not None else None,
+        total_cost="$" + f"{total_cost:.2f}" if total_cost is not None else None,
         total_requests=str(total_requests) if total_requests is not None else None,
-        balance="$" + str(float(credits) - float(total_cost)) if credits and total_cost else None,
+        balance="$" + f"{float(credits) - float(total_cost):.2f}" if credits and total_cost else None,
         count_balance=str(count_credits - total_requests) if count_credits is not None and total_requests is not None else None
     )
 

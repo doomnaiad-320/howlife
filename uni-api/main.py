@@ -20,6 +20,26 @@ from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
 from fastapi import FastAPI, HTTPException, Depends, Request, Body, BackgroundTasks
 
 from core.log_config import logger
+
+def create_unified_error_response(status_code: int, original_error: str, provider_name: str = None):
+    """
+    创建统一的错误响应
+    - 对用户返回友好的统一错误信息
+    - 在日志中记录详细的原始错误信息
+    """
+    # 统一的用户友好错误信息
+    user_friendly_message = "AI渠道错误或敏感词违规.请检查你的工具/软件配置信息."
+
+    # 记录详细错误到日志
+    if provider_name:
+        logger.error(f"Provider {provider_name} error (Status: {status_code}): {original_error}")
+    else:
+        logger.error(f"API error (Status: {status_code}): {original_error}")
+
+    return JSONResponse(
+        status_code=status_code,
+        content={"error": user_friendly_message}
+    )
 from core.request import get_payload
 from core.response import fetch_response, fetch_response_stream
 from core.models import RequestModel, ImageGenerationRequest, AudioTranscriptionRequest, ModerationRequest, TextToSpeechRequest, UnifiedRequest, EmbeddingRequest
@@ -381,10 +401,19 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     if exc.status_code == 404:
         token = await get_api_key(request)
         logger.error(f"404 Error: {exc.detail} api_key: {token}")
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={"message": exc.detail},
-    )
+
+    # 对于客户端错误（4xx）和某些特定错误，保持原有错误信息
+    # 对于服务器错误（5xx）和上游错误，使用统一错误信息
+    if exc.status_code >= 500 or "provider" in str(exc.detail).lower():
+        return create_unified_error_response(
+            status_code=exc.status_code,
+            original_error=str(exc.detail)
+        )
+    else:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"message": exc.detail},
+        )
 
 import uuid
 import asyncio
@@ -645,9 +674,9 @@ class LoggingStreamingResponse(Response):
             if is_debug:
                 import traceback
                 traceback.print_exc()
-            # 发送错误消息给客户端（如果可能）
+            # 发送统一错误消息给客户端（如果可能）
             try:
-                error_data = json.dumps({"error": f"Streaming error: {str(e)}"})
+                error_data = json.dumps({"error": "AI渠道错误或敏感词违规.请检查你的工具/软件配置信息."})
                 await send({
                     'type': 'http.response.body',
                     'body': f"data: {error_data}\n\n".encode('utf-8'),
@@ -871,9 +900,10 @@ class StatsMiddleware(BaseHTTPMiddleware):
                 import traceback
                 traceback.print_exc()
             logger.error(f"Error processing request: {str(e)}")
-            return JSONResponse(
+            # 使用统一错误响应
+            return create_unified_error_response(
                 status_code=500,
-                content={"error": f"Internal server error: {str(e)}"}
+                original_error=f"Internal server error: {str(e)}"
             )
 
         finally:
@@ -1589,6 +1619,7 @@ class ModelRequestHandler:
                     status_code = 429
 
 
+                # 记录详细错误信息到日志（保留原有的详细日志）
                 logger.error(f"Error {status_code} with provider {channel_id} API key: {current_api}: {error_message}")
                 if is_debug:
                     import traceback
@@ -1597,18 +1628,23 @@ class ModelRequestHandler:
                 if auto_retry and (status_code not in [400, 413] or urlparse(provider.get('base_url', '')).netloc == 'models.inference.ai.azure.com'):
                     continue
                 else:
-                    return JSONResponse(
+                    # 使用统一错误响应
+                    return create_unified_error_response(
                         status_code=status_code,
-                        content={"error": f"Error: Current provider response failed: {error_message}"}
+                        original_error=f"Current provider response failed: {error_message}",
+                        provider_name=channel_id
                     )
 
         current_info = request_info.get()
         current_info["first_response_time"] = -1
         current_info["success"] = False
         current_info["provider"] = None
-        return JSONResponse(
+
+        # 使用统一错误响应
+        return create_unified_error_response(
             status_code=status_code,
-            content={"error": f"All {request_data.model} error: {error_message}"}
+            original_error=f"All {request_data.model} providers failed: {error_message}",
+            provider_name="all_providers"
         )
 
 model_handler = ModelRequestHandler()

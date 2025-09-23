@@ -63,7 +63,7 @@ export default function ProvidersPage() {
   })
 
   useEffect(() => {
-    const savedApiKey = localStorage.getItem("apiKey")
+    const savedApiKey = localStorage.getItem("uniapi_current_key")
     if (savedApiKey) {
       setApiKey(savedApiKey)
       fetchProviders(savedApiKey)
@@ -330,15 +330,28 @@ export default function ProvidersPage() {
                 placeholder="输入您的 API Key"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && apiKey && !loading) {
+                    localStorage.setItem("uniapi_current_key", apiKey)
+                    fetchProviders(apiKey)
+                  }
+                }}
               />
-              <Button 
+              <Button
                 onClick={() => {
-                  localStorage.setItem("apiKey", apiKey)
+                  localStorage.setItem("uniapi_current_key", apiKey)
                   fetchProviders(apiKey)
                 }}
-                disabled={!apiKey}
+                disabled={!apiKey || loading}
               >
-                确认
+                {loading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    验证中...
+                  </>
+                ) : (
+                  "确认"
+                )}
               </Button>
             </div>
           </CardContent>
@@ -349,6 +362,8 @@ export default function ProvidersPage() {
 
   return (
     <div className="container mx-auto p-6">
+
+
       <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-3xl font-bold">Provider 管理</h1>

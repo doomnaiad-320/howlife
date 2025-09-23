@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import fs from "fs"
 import yaml from "js-yaml"
 
-const API_YAML_PATH = process.env.API_YAML_PATH || "/app/data/api.yaml"
+const API_YAML_PATH = process.env.API_YAML_PATH || "uni-api/api.yaml"
 
 // 验证 API Key 权限
 async function validateApiKey(apiKey: string) {

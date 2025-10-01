@@ -19,7 +19,7 @@ import { Separator } from "@/components/ui/separator"
 import { ChannelTester } from "@/components/channel-tester"
 
 export default function HomePage() {
-  const [currentPage, setCurrentPage] = useState<"stats" | "config" | "test" | "billing" | "providers">("stats")
+  const [currentPage, setCurrentPage] = useState<"stats" | "config" | "test" | "billing" | "providers" | "keys">("stats")
   const [showApiKeyModal, setShowApiKeyModal] = useState(false)
   const [apiKey, setApiKey] = useState<string>("")
   const [userRole, setUserRole] = useState<string>("")
@@ -128,20 +128,27 @@ export default function HomePage() {
   // 如果没有设置 API Key，显示设置引导界面
   if (!apiKey) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 p-4 dark:from-gray-900 dark:to-gray-800">
-        <Card className="w-full max-w-md shadow-lg">
-          <CardHeader className="text-center">
-            <CardTitle className="text-2xl font-semibold tracking-tight">UniAPI 管理面板</CardTitle>
-            <CardDescription>请先设置您的 API Key 以访问系统</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button onClick={() => setShowApiKeyModal(true)} className="w-full">
-              <Settings className="w-4 h-4 mr-2" />
-              设置 API Key
-            </Button>
-          </CardContent>
-        </Card>
-        {/* API Key Modal 始终挂载，通过 open 控制显示 */}
+      <>
+        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 p-4 dark:from-gray-900 dark:to-gray-800">
+          <Card className="w-full max-w-md shadow-lg">
+            <CardHeader className="text-center">
+              <CardTitle className="text-2xl font-semibold tracking-tight">UniAPI 管理面板</CardTitle>
+              <CardDescription>请先设置您的 API Key 以访问系统</CardDescription>
+            </CardHeader>
+            <CardContent className="flex justify-center">
+              <Button
+                onClick={() => {
+                  console.log("Button clicked, opening modal");
+                  setShowApiKeyModal(true);
+                }}
+              >
+                <Settings className="w-4 h-4 mr-2" />
+                设置 API Key
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+        {/* API Key Modal 移到外层，确保 Portal 正常工作 */}
         <ApiKeyModal
           open={showApiKeyModal}
           onOpenChange={setShowApiKeyModal}
@@ -151,7 +158,7 @@ export default function HomePage() {
           currentRole={userRole}
           currentViewingKey={viewingKey}
         />
-      </div>
+      </>
     )
   }
 
@@ -269,14 +276,26 @@ export default function HomePage() {
 
               {/* Provider Management Button (Admin Only) */}
               {canAccessConfig && (
-                <Button
-                  variant={currentPage === "providers" ? "secondary" : "ghost"}
-                  onClick={() => setCurrentPage("providers")}
-                  size="sm"
-                >
-                  <Server className="w-4 h-4 mr-2" />
-                  Provider 管理
-                </Button>
+                <>
+                  <Button
+                    variant={currentPage === "providers" ? "secondary" : "ghost"}
+                    onClick={() => setCurrentPage("providers")}
+                    size="sm"
+                  >
+                    <Server className="w-4 h-4 mr-2" />
+                    Provider 管理
+                  </Button>
+                  <Button
+                    variant={currentPage === "keys" ? "secondary" : "ghost"}
+                    onClick={() => setCurrentPage("keys")}
+                    size="sm"
+                  >
+                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                    </svg>
+                    用户 Key 管理
+                  </Button>
+                </>
               )}
 
               {/* Config Editor Button (Admin Only) */}
@@ -352,14 +371,26 @@ export default function HomePage() {
                           渠道测试
                         </Button>
                         {canAccessConfig && (
-                          <Button
-                            variant={currentPage === "providers" ? "secondary" : "ghost"}
-                            onClick={() => { setCurrentPage("providers"); setMobileMenuOpen(false); }}
-                            className="w-full justify-start"
-                          >
-                            <Server className="w-4 h-4 mr-2" />
-                            Provider 管理
-                          </Button>
+                          <>
+                            <Button
+                              variant={currentPage === "providers" ? "secondary" : "ghost"}
+                              onClick={() => { setCurrentPage("providers"); setMobileMenuOpen(false); }}
+                              className="w-full justify-start"
+                            >
+                              <Server className="w-4 h-4 mr-2" />
+                              Provider 管理
+                            </Button>
+                            <Button
+                              variant={currentPage === "keys" ? "secondary" : "ghost"}
+                              onClick={() => { setCurrentPage("keys"); setMobileMenuOpen(false); }}
+                              className="w-full justify-start"
+                            >
+                              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                              </svg>
+                              用户 Key 管理
+                            </Button>
+                          </>
                         )}
                         {canAccessConfig && (
                           <Button
@@ -422,6 +453,24 @@ export default function HomePage() {
               <Server className="mx-auto h-10 w-10 text-yellow-500 mb-3"/>
               <p className="font-medium text-yellow-700 dark:text-yellow-400">访问受限</p>
               <p className="text-sm text-muted-foreground mt-1">您需要管理员权限才能访问 Provider 管理功能。</p>
+            </CardContent>
+          </Card>
+        )}
+        {currentPage === "keys" && canAccessConfig && (
+          <iframe
+            src="/keys"
+            className="w-full h-[calc(100vh-200px)] border-0 rounded-lg"
+            title="用户 Key 管理"
+          />
+        )}
+        {currentPage === "keys" && !canAccessConfig && (
+          <Card className="border-dashed border-yellow-500 bg-yellow-50 dark:bg-yellow-900/20">
+            <CardContent className="p-6 text-center">
+              <svg className="mx-auto h-10 w-10 text-yellow-500 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+              </svg>
+              <p className="font-medium text-yellow-700 dark:text-yellow-400">访问受限</p>
+              <p className="text-sm text-muted-foreground mt-1">您需要管理员权限才能访问用户 Key 管理功能。</p>
             </CardContent>
           </Card>
         )}

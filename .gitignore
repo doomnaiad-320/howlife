@@ -77,3 +77,7 @@ temp/
 # config/
 # api.yaml
 
+KEY_MANAGEMENT_SUMMARY.md
+USER_KEY_MANAGEMENT.md
+test-key-management.sh
+BUGFIX_SUMMARY.md

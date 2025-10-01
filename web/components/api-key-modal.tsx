@@ -426,6 +426,11 @@ export function ApiKeyModal({
 
   // --- Render ---
 
+  // Debug logging
+  useEffect(() => {
+    console.log("ApiKeyModal render - open:", open);
+  }, [open]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* Reduced max-width for compactness */}

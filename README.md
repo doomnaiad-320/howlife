@@ -67,6 +67,8 @@ chmod +x setup-and-start.sh
 
 详细的安装和使用指南请参考：[SETUP_README.md](SETUP_README.md)
 
+**⚠️ 遇到安装问题？** 请查看 [INSTALL_FIX.md](INSTALL_FIX.md) 获取解决方案。
+
 ---
 
 ### 🐳 方式二：Docker Compose 部署

@@ -13,6 +13,20 @@ echo ""
 echo -e "${BLUE}[INFO]${NC} 重启 Uni-API 服务..."
 echo ""
 
+# 配置环境变量
+echo -e "${BLUE}[INFO]${NC} 配置环境变量..."
+PROJECT_ROOT=$(cd "$(dirname "$0")" && pwd)
+cat > "$PROJECT_ROOT/web/.env.local" << EOF
+# Uni-API 环境配置
+STATS_DB_PATH=$PROJECT_ROOT/uni-api/data/stats.db
+API_YAML_PATH=$PROJECT_ROOT/uni-api/api.yaml
+STATS_DB_TYPE=sqlite
+NODE_ENV=production
+PORT=3000
+EOF
+mkdir -p "$PROJECT_ROOT/uni-api/data"
+echo -e "${GREEN}[SUCCESS]${NC} 环境配置完成"
+
 # 停止服务
 ./stop-services.sh
 

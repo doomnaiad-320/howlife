@@ -135,7 +135,20 @@ install_backend_deps() {
     
     # 安装依赖
     log_info "安装 Python 依赖包..."
-    pip install -e .
+
+    # 先安装 setuptools 和 wheel
+    pip install --upgrade setuptools wheel
+
+    # 直接安装依赖，不使用 editable 模式
+    if [ -f "pyproject.toml" ]; then
+        # 从 pyproject.toml 读取依赖并安装
+        pip install aiofiles aiosqlite asyncpg certifi==2025.1.31 cryptography==43.0.3 \
+                    fastapi greenlet httpx-socks "httpx[http2]" pillow pytest \
+                    python-multipart ruamel-yaml sqlalchemy uvicorn watchfiles
+    else
+        log_error "pyproject.toml 文件不存在"
+        exit 1
+    fi
     
     log_success "后端依赖安装完成"
     
@@ -168,19 +181,45 @@ install_frontend_deps() {
     cd ..
 }
 
+# 配置环境变量
+setup_env() {
+    log_info "=========================================="
+    log_info "配置环境变量"
+    log_info "=========================================="
+
+    # 获取项目根目录的绝对路径
+    PROJECT_ROOT=$(cd "$(dirname "$0")" && pwd)
+
+    # 创建 web/.env.local 文件
+    log_info "创建 web/.env.local 文件..."
+    cat > "$PROJECT_ROOT/web/.env.local" << EOF
+# Uni-API 环境配置
+STATS_DB_PATH=$PROJECT_ROOT/uni-api/data/stats.db
+API_YAML_PATH=$PROJECT_ROOT/uni-api/api.yaml
+STATS_DB_TYPE=sqlite
+NODE_ENV=production
+PORT=3000
+EOF
+
+    log_success "环境配置完成"
+
+    # 确保数据目录存在
+    mkdir -p "$PROJECT_ROOT/uni-api/data"
+}
+
 # 检查配置文件
 check_config() {
     log_info "=========================================="
     log_info "检查配置文件"
     log_info "=========================================="
-    
+
     if [ ! -f "uni-api/api.yaml" ]; then
         log_error "配置文件 uni-api/api.yaml 不存在！"
         log_info "请创建配置文件或从样板复制："
         log_info "  cp uni-api/样板.yaml uni-api/api.yaml"
         exit 1
     fi
-    
+
     log_success "配置文件检查通过"
 }
 
@@ -289,10 +328,13 @@ main() {
     # 安装项目依赖
     install_backend_deps
     install_frontend_deps
-    
+
+    # 配置环境变量
+    setup_env
+
     # 检查配置
     check_config
-    
+
     # 启动服务
     start_services
     
